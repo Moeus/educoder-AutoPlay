@@ -19,6 +19,7 @@
 * 自动获取视频总时长
 * 视频结束后自动关闭播放页面
 * 自动切换到下一个视频
+* 当前页处理完后，在原列表标签页自动点击下一页，直到按钮禁用或不存在
 * 支持多个浏览器实例同时运行
 * 支持多个账号分别登录
 * 每个实例使用独立浏览器环境
@@ -46,7 +47,7 @@
 按回车开始执行
        │
        ▼
-扫描所有视频卡片
+扫描当前页的视频卡片
        │
        ├── 进度 = 100%
        │       └── 跳过
@@ -76,6 +77,13 @@
                │
                ▼
            下一个视频
+               │
+               ▼
+        当前页的视频处理完
+               │
+               ├── 下一页按钮可用 → 原列表 Tab 翻页 → 重新扫描
+               │
+               └── 下一页按钮禁用或不存在 → 结束
 ```
 
 ---
@@ -213,6 +221,10 @@ https://www.educoder.net/
 ```
 
 然后自动进入下一个视频。
+
+当前页处理完成后，程序会检查 `li.ant-pagination-next` 中的按钮。按钮可用时在原列表标签页点击下一页，等待列表加载后继续处理；按钮存在 `disabled` 属性（包括 `disabled=""`）、分页元素标记为禁用，或者没有下一页按钮时结束。当前页全部视频已完成也会继续检查下一页。
+
+翻页检测前会激活视频列表标签页，下一页元素最多等待 10 秒。需要查看选择器匹配结果和按钮 HTML 时，可单独运行 `uv run python test_next_page.py`。
 
 ---
 
@@ -390,6 +402,8 @@ CHECK_INTERVAL = 3
 PLAYER_LOAD_WAIT = 3
 
 AFTER_VIDEO_WAIT = 3
+
+PAGE_LOAD_WAIT = 3
 ```
 
 ### `CHECK_INTERVAL`
@@ -424,6 +438,10 @@ PLAYER_LOAD_WAIT = 3
 AFTER_VIDEO_WAIT = 3
 ```
 
+### `PAGE_LOAD_WAIT`
+
+点击下一页后等待视频列表更新的时间，默认 3 秒。网络较慢时可以增大此值。
+
 ---
 
 ## 注意事项
@@ -446,6 +464,8 @@ AFTER_VIDEO_WAIT = 3
 CARD_SELECTOR = 'css:.ant-card-body'
 
 PROGRESS_SELECTOR = 'css:.ant-progress-text'
+
+NEXT_PAGE_SELECTOR = 'css:li.ant-pagination-next[title="下一页"]'
 
 PLAY_SELECTOR = 'css:#play'
 

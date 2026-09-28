@@ -19,6 +19,9 @@ PLAYER_LOAD_WAIT = 3
 # 视频结束后，给网页一点时间提交进度
 AFTER_VIDEO_WAIT = 3
 
+# 点击下一页后，等待视频列表更新
+PAGE_LOAD_WAIT = 3
+
 
 # ============================================================
 # 视频列表页面元素
@@ -29,6 +32,9 @@ CARD_SELECTOR = 'css:.ant-card-body'
 
 # 视频完成百分比
 PROGRESS_SELECTOR = 'css:.ant-progress-text'
+
+# 视频列表的下一页按钮（翻页不会打开新 Tab）
+NEXT_PAGE_SELECTOR = 'css:li.ant-pagination-next[title="下一页"]'
 
 
 # ============================================================
@@ -233,6 +239,56 @@ def scan_video_queue(list_tab):
 
 
 # ============================================================
+# 翻到下一页
+# ============================================================
+
+def go_to_next_page(list_tab):
+    """在原列表 Tab 中翻页；没有下一页或按钮禁用时结束。"""
+
+    # 使用保存的视频列表 Tab，激活后再检测，避免在后台页面上过早查找。
+    list_tab.set.activate()
+
+    next_page = list_tab.ele(
+        NEXT_PAGE_SELECTOR,
+        timeout=10
+    )
+
+    if not next_page:
+        print('等待 10 秒后未检测到下一页按钮，停止处理。')
+        return False
+
+    button = next_page.ele('css:button', timeout=2)
+
+    if not button:
+        raise RuntimeError('找到了下一页元素，但没有找到其中的 button。')
+
+    # disabled 是布尔属性，disabled="" 也表示禁用，不能用真假判断。
+    if (
+        button.attr('disabled') is not None
+        or next_page.attr('aria-disabled') == 'true'
+        or 'ant-pagination-disabled' in (
+            next_page.attr('class') or ''
+        ).split()
+    ):
+        print('下一页按钮已禁用，已到最后一页。')
+        return False
+
+    print('当前页处理完成，正在翻到下一页...')
+
+    if not button.click():
+        raise RuntimeError('点击下一页按钮失败。')
+
+    time.sleep(PAGE_LOAD_WAIT)
+    list_tab.wait.eles_loaded(
+        CARD_SELECTOR,
+        timeout=15,
+        raise_err=True
+    )
+
+    return True
+
+
+# ============================================================
 # 打开视频
 # ============================================================
 
@@ -295,10 +351,6 @@ def open_video(list_tab, video_info):
         print(
             f'已打开视频页面：'
             f'{video_tab.title}'
-        )
-
-        print(
-            f'URL：{video_tab.url}'
         )
 
         # 等待播放器加载
@@ -453,10 +505,6 @@ def click_play(play_button):
 
         print(
             '正在点击播放按钮...'
-        )
-
-        print(
-            f'播放按钮：{play_button}'
         )
 
         play_button.click()
@@ -799,6 +847,8 @@ def cleanup_browser(browser):
 
 def main():
 
+    browser = None
+
     print(
         '启动 Chromium...'
     )
@@ -856,133 +906,150 @@ def main():
             f'{list_tab.url}'
         )
 
-        # ----------------------------------------
-        # 获取待播放视频
-        # ----------------------------------------
+        # 外层循环翻页，内层循环播放当前页的视频。
+        page_number = 1
+        stop_processing = False
 
-        queue = scan_video_queue(
-            list_tab
-        )
-
-        if not queue:
+        while True:
 
             print()
-            print(
-                '没有需要播放的视频。'
+            print(f'========== 处理第 {page_number} 页 ==========')
+
+            # ----------------------------------------
+            # 获取待播放视频
+            # ----------------------------------------
+
+            queue = scan_video_queue(
+                list_tab
             )
 
-            return
-
-        total = len(queue)
-
-        print()
-        print('========================================')
-        print(
-            f'准备依次播放 {total} 个视频。'
-        )
-        print('========================================')
-
-        # ----------------------------------------
-        # 遍历队列
-        # ----------------------------------------
-
-        for number, video_info in enumerate(
-            queue,
-            start=1
-        ):
-
-            print()
-            print()
-            print(
-                f'========== '
-                f'[{number}/{total}] '
-                f'=========='
-            )
-
-            video_tab = open_video(
-                list_tab,
-                video_info
-            )
-
-            if not video_tab:
-
-                print(
-                    '无法打开该视频，跳过。'
-                )
-
-                continue
-
-            video_finished = False
-
-            try:
-
-                video_finished = (
-                    wait_video_finished(
-                        video_tab
-                    )
-                )
-
-            except KeyboardInterrupt:
+            if not queue:
 
                 print()
                 print(
-                    '检测到 Ctrl+C，准备停止。'
+                    '当前页没有需要播放的视频，继续检查下一页。'
                 )
 
-                raise
+            total = len(queue)
 
-            except Exception as e:
+            print()
+            print('========================================')
+            print(
+                f'准备依次播放 {total} 个视频。'
+            )
+            print('========================================')
+
+            # ----------------------------------------
+            # 遍历队列
+            # ----------------------------------------
+
+            for number, video_info in enumerate(
+                queue,
+                start=1
+            ):
 
                 print()
+                print()
                 print(
-                    '播放过程中发生错误：'
-                    f'{type(e).__name__}: {e}'
+                    f'========== '
+                    f'[{number}/{total}] '
+                    f'=========='
                 )
 
-            finally:
+                video_tab = open_video(
+                    list_tab,
+                    video_info
+                )
 
-                # ------------------------------------
-                # 只有确定正常结束才自动关闭视频页
-                # ------------------------------------
-
-                if video_finished:
-
-                    try:
-
-                        print(
-                            '关闭当前视频标签页...'
-                        )
-
-                        video_tab.close()
-
-                    except Exception as e:
-
-                        print(
-                            f'关闭视频标签页失败：{e}'
-                        )
+                if not video_tab:
 
                     print(
-                        '返回视频列表。'
+                        '无法打开该视频，跳过。'
                     )
 
-                    # 等待平台提交进度
-                    time.sleep(
-                        AFTER_VIDEO_WAIT
+                    continue
+
+                video_finished = False
+
+                try:
+
+                    video_finished = (
+                        wait_video_finished(
+                            video_tab
+                        )
                     )
 
-                else:
+                except KeyboardInterrupt:
 
                     print()
                     print(
-                        '当前视频没有确认正常结束。'
+                        '检测到 Ctrl+C，准备停止。'
                     )
 
+                    raise
+
+                except Exception as e:
+
+                    print()
                     print(
-                        '为避免误操作，程序停止，'
-                        '视频页面保持打开。'
+                        '播放过程中发生错误：'
+                        f'{type(e).__name__}: {e}'
                     )
 
-                    break
+                finally:
+
+                    # ------------------------------------
+                    # 只有确定正常结束才自动关闭视频页
+                    # ------------------------------------
+
+                    if video_finished:
+
+                        try:
+
+                            print(
+                                '关闭当前视频标签页...'
+                            )
+
+                            video_tab.close()
+
+                        except Exception as e:
+
+                            print(
+                                f'关闭视频标签页失败：{e}'
+                            )
+
+                        print(
+                            '返回视频列表。'
+                        )
+
+                        # 等待平台提交进度
+                        time.sleep(
+                            AFTER_VIDEO_WAIT
+                        )
+
+                    else:
+
+                        print()
+                        print(
+                            '当前视频没有确认正常结束。'
+                        )
+
+                        print(
+                            '为避免误操作，程序停止，'
+                            '视频页面保持打开。'
+                        )
+
+                        stop_processing = True
+                        break
+
+            # 播放未正常结束时，停止外层循环，不继续翻页。
+            if stop_processing:
+                break
+
+            if not go_to_next_page(list_tab):
+                break
+
+            page_number += 1
 
         # ----------------------------------------
         # 最后刷新列表查看进度
